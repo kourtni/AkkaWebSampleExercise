@@ -9,7 +9,7 @@ import net.liftweb.json.JsonAST._
 
 class DataStoreTest extends FunSuite with ShouldMatchers with BeforeAndAfterEach {
 
-  var dataStore: InMemoryDataStore[JSONRecord] = _
+  var dataStore: InMemoryDataStore = _
   
   val now   = (new DateTime).getMillis
   val start = (new DateTime(now - 3600)).getMillis
@@ -19,7 +19,7 @@ class DataStoreTest extends FunSuite with ShouldMatchers with BeforeAndAfterEach
   val js3 = makeJSONRecord(start + 3000,  "three")
 
   override def beforeEach {
-    dataStore = new InMemoryDataStore[JSONRecord]("testDataStore")
+    dataStore = new InMemoryDataStore("testDataStore")
   }
   
   test("A new DataStore should have no elements") {
@@ -46,26 +46,26 @@ class DataStoreTest extends FunSuite with ShouldMatchers with BeforeAndAfterEach
   }
   
   def populateDataStore(size: Long) = {
-    for (i <- start      until (start + size ) by 2L) 
+    for (i <- start      to (start + size ) by 2L) 
       { dataStore add makeJSONRecord(i, "" + (i*10L)) }
-    for (i <- start + 1L until (start + size ) by 2L)
+    for (i <- start + 1L to (start + size ) by 2L)
       { dataStore add makeJSONRecord(i, "" + (i*10L)) }
   }
   
-  test("range returns a subset of a DataStore from a starting bounds upto but not including an upper bound should return a Traversable with the correct subset") {
+  test("range returns a subset of a DataStore from a starting bounds upto AND including an upper bound should return a Traversable with the correct subset") {
     populateDataStore(100)
     val range = dataStore.range(new DateTime(start+20), new DateTime(start+25)).toList
-    range.size should equal(5)
-    def checkEach(i: Int, range2: List[_]):Unit = range2 match {
+    range.size should equal(6)
+    def checkEach(i: Int, range2: List[JSONRecord]):Unit = range2 match {
       case Nil =>
       case head :: tail => 
-        head.asInstanceOf[JSONRecord].timestamp should equal (new DateTime(start+i+20).getMillis)
+        head.timestamp should equal (new DateTime(start+i+20))
         checkEach(i+1, tail)
     }
     checkEach(0, range)
   }
     
-  test("range returns an empty equence if the start is >= the end") {
+  test("range returns an empty sequence if the start is >= the end") {
     populateDataStore(100)
     for (n <- List(0L, 10L, 99L)) {
       val range1 = dataStore.range(new DateTime(n), new DateTime(n))

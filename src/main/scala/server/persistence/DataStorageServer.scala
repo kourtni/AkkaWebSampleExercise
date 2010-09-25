@@ -13,15 +13,17 @@ import net.liftweb.json.JsonAST._
 import net.liftweb.json.JsonDSL._
 import org.joda.time._
 
+case class CouldNotFindDateTime(key: String, json: JValue) extends RuntimeException(
+  "Could not find expected date time field for key "+key+" in JSON "+compact(render(json)))
+  
 /**
  * DataStorageServer manages access to time-oriented data, stored as JSON.
  * TODO: Currently, the query capabilities are limited to date-time range queries.
  */
-class DataStorageServer(val service: String) extends Transactor with PingHandler with Logging {
+class DataStorageServer(val serviceName: String, val dataStore: DataStore) 
+    extends Transactor with PingHandler with Logging {
 
-  val actorName = "DataStoreServer("+service+")"
-
-  protected lazy val dataStore = DataStorageServer.makeDefaultDataStore(service)  
+  val actorName = "DataStoreServer("+serviceName+")"
 
   log.info("Creating: "+actorName)
   
@@ -46,12 +48,19 @@ class DataStorageServer(val service: String) extends Transactor with PingHandler
       log.info (message)
       self.reply (toJValue(Pair("error", message)))
   }
+
+  protected[persistence] def getData(criteria: JValue): JValue = {
+    (criteria \ "instrument_list") match {
+      case JField(key, JString(value)) => getInstrumentList(value)
+      case _ => getDataForRange(criteria)
+    } 
+  }
   
   // TODO: Support other query criteria besides time ranges.
-  protected[persistence] def getData(criteria: JValue): JValue = {
-    log.debug(actorName + ": GET starting...")
-    val start = extractTime(criteria, "start", 0)
-    val end   = extractTime(criteria, "end",   (new DateTime).getMillis)
+  protected[persistence] def getDataForRange(criteria: JValue): JValue = {
+    log.debug(actorName + ": Starting getDataForRange:")
+    val start: DateTime = extractTime(criteria, "start", new DateTime(0))
+    val end: DateTime   = extractTime(criteria, "end",   new DateTime)
     try {
       val data = for {
         json <- dataStore.range(start, end)
@@ -68,6 +77,21 @@ class DataStorageServer(val service: String) extends Transactor with PingHandler
     }
   }
 
+  // Hack!
+  protected[persistence] def getInstrumentList(prefix: String): JValue = {
+    log.debug(actorName + ": Starting getInstrumentList for prefix: "+prefix)
+    dataStore match {
+      case mongo: MongoDBDataStore => 
+        val data = for {
+					json <- mongo.getInstrumentList(prefix)
+        } yield json
+        val result = toJSON(data toList)
+        log.info("DataStorageServer.getInstrumentList returning: "+result)
+        result
+      case _ => throw new RuntimeException("Can't get the instrument list from datastore "+dataStore)
+    }
+  }
+  
   protected[persistence] def putData(jsonRecord: JSONRecord) = {
     log.debug(actorName + " PUT: storing JSON: " + jsonShortStr(jsonRecord.toString))
     try {
@@ -81,9 +105,10 @@ class DataStorageServer(val service: String) extends Transactor with PingHandler
     }
   }
 
-  protected def extractTime(json: JValue, key: String, default: => Long): Long = (json \ key) match {
+  protected def extractTime(json: JValue, key: String, default: => DateTime): DateTime = (json \ key) match {
     case JField(key, value) => value match {
-      case JInt(millis) => millis.longValue
+      case JInt(millis) => new DateTime(millis.toLong)
+      case JString(s) => new DateTime(s)
       case _ => default
     }
     case _ => default
@@ -101,23 +126,6 @@ class DataStorageServer(val service: String) extends Transactor with PingHandler
 
 object DataStorageServer extends Logging {
 
-  import se.scalablesolutions.akka.config.Config.config
-
   def getAllDataStorageServers: List[ActorRef] = 
     ActorRegistry.actorsFor(classOf[DataStorageServer]).toList 
-
-  /**
-   * Instantiate the default type of datastore, based on the configuration setting in "akk.conf"
-   * or a system property. Defaults to MongoDB.
-   */
-  def makeDefaultDataStore(storeName: String): DataStore[JSONRecord] = {
-    val db = System.getProperty("app.datastore.type", config.getString("app.datastore.type", "mongodb"))
-    if (db.toLowerCase.trim == "mongodb") {
-      log.info("Using MongoDB-backed data storage.")
-      new MongoDBDataStore(storeName)
-    } else {
-      log.info("Using in-memory data storage.")
-      new InMemoryDataStore[JSONRecord](storeName)
-    }
-  }
 }

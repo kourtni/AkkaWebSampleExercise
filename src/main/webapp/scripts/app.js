@@ -9,15 +9,15 @@ function padLeft(s, l, c) {
 }
 
 function formatDate(date) {
-  return padLeft((date.getMonth() + 1), 2, '0') + "/" +
-    padLeft(date.getDate(), 2, '0') + "/" +
-    date.getFullYear()
+  return date.getFullYear() + "-" +
+    padLeft((date.getMonth() + 1), 2, '0') + "-" +
+    padLeft(date.getDate(), 2, '0')
 }
 
 function setupDefaultDates() {
   var today = new Date()
-  $('.start').val(formatDate(today))
-  $('.end').val(formatDate(today))
+  $('#start').val(formatDate(today))
+  $('#end').val(formatDate(today))
 }
 
 function submitOnCarriageReturn(elements, controlsParent) {
@@ -70,7 +70,7 @@ function writeInfo(string, whichMessageSpan) {
 
 function onSuccess(jsonString) {
   $('.banner').fadeOut(2000);
-  writeInfo("Response received")
+  writeInfo("Response received...")
   var json = $.parseJSON(jsonString)
   if (json === null || json === undefined) {
     writeError("Invalid data returned by AJAX query: " + jsonString)
@@ -79,9 +79,12 @@ function onSuccess(jsonString) {
   } else if (json["pong"]) {
     var pongList = $('#pong-list')
     pongList.html('')
-    // TODO: Fix, the returned json is a doubly-nested array [[...]]
-    $.each($(json["pong"]), function(i, array) {
-      $.each(array, function(j, item) {
+    // TODO: Fix, the returned json is a EITHER a singly- or doubly-nested array [[...]]
+    $.each($(json["pong"]), function(i, arrayOrObject) {
+  	  if (is_array(arrayOrObject) === false) {
+        arrayOrObject = [arrayOrObject]
+			}
+      $.each(arrayOrObject, function(j, item) {
         pongList.append("<li>" + item + "</li>")
       })
     })
@@ -94,37 +97,14 @@ function onSuccess(jsonString) {
   } else if (json["warning"]) {
     writeWarning(json["warning"])
   } else if (json["error"]) {
-    writeInfo(json["error"])
+    writeError(json["error"])
   } else if (json["financial-data"]) {
-    // Plot the financial data. 
-    // TODO: we more or less assume that there is really one instrument and
-    // one statistic in each "row", because that's how the data is currently
-    // returned, with one-element arrays for the instruments and statistics.
-    $('#pong-display').hide()
-    $("#finance-table tbody").html('')
-    $.each(json["financial-data"], function(i, row) {
-      var criteria = row.criteria
-      var instruments = row.criteria.instruments
-      var statistics  = row.criteria.statistics
-      var results     = row.results
-      if (instruments.length > 1)
-        appendDebug("More than one instrument in the row! Assuming all data is for the first instrument...")
-      if (statistics.length > 1)
-        appendDebug("More than one statistic in the row! Assuming all data is for the first statistic...")
-      if (results.length === 0) {
-        $("#finance-table tbody").append(
-          "<tr class='results-row'><tr><td>"+instruments+"</td><td>"+statistics+"</td><td><b>No Data!</b></td></tr>")        
-      } else {
-        $.each(results, function(j, result) {
-          $("#finance-table tbody").append(
-            "<tr class='results-row'><td class='instruments'>" + instruments +
-            "</td><td class='statistics'>" + statistics + 
-            "</td><td class='results'>" + result + "</td></tr>")        
-        })
-      }
-    })
-    setUpTableSorting()
-    $('#finance-display').show()
+		displayFinancialData(json["financial-data"],
+      [["Symbol", function(row) { return row.stock_symbol; }],
+       ["Date",   function(row) { return row.date; }],
+       ["Price",  function(row) { return row.close; }]])
+  } else if (json["instrument-list"]) {
+		displayInstrumentsLists(json["instrument-list"])
   } else {
     writeError("Unexpected JSON returned. Listed below and also written to the JavaScript console")
     writeDebug("Unexpected JSON returned: "+json)
@@ -134,6 +114,84 @@ function onSuccess(jsonString) {
   //  setTimeout(function() {
   //   sendRequest("???");
   // }, 3000);
+}
+
+function displayFinancialData(json, fields) {
+  // Plot the financial data. 
+  // TODO: we more or less assume that there is really one instrument and
+  // one statistic in each "row", because that's how the data is currently
+  // returned, with one-element arrays for the instruments and statistics.
+  $('#pong-display').hide()
+  // Create the header row:
+  $("#finance-table thead").html('<tr class="finance-head"></tr>') // start with a clean row.
+  $.each(fields, function(i, field) {
+    if (i == 0)
+      $(".finance-head").append("<th class='top-left-rounded-corners'>" + field[0] + "</th>")
+    else if (i == fields.length - 1)
+      $(".finance-head").append("<th class='top-right-rounded-corners'>" + field[0] + "</th>")
+    else
+      $(".finance-head").append("<th>" + field[0] + "</th>")    
+  })
+  // Create the body rows:
+  $("#finance-table tbody").html('') // clear the body first.
+  $.each(json, function(i, row) {
+    var criteria = row.criteria
+    var instruments = "unknown criteria"
+    var statistics  = "unknown statistics"
+    if (criteria) {
+      instruments = criteria.instruments
+      statistics  = criteria.statistics
+    }
+    var results  = row.results
+    if (results.length === 0) {
+      var start = $('#master-toolbar').find('#start').val()
+      var end   = $('#master-toolbar').find('#end').val()
+      $("#finance-table tbody").append(
+        "<tr class='results-row'><tr><td colspan='"+fields.length+"'><b>No "+statistics+" data for "+instruments+". Time range: "+start+" to "+end+
+          "</b></br><font class='tiny'>(Note: time range may not be relevant for all queries...).</font></td></tr>")        
+    } else {
+      $.each(results, function(j, result) {
+        var idij = "results-row-" + i+"_"+j
+        $("#finance-table tbody").append("<tr class='results-row' id='results-row-" + idij + "'></tr>")
+        $.each(fields, function(k, field) {
+          var idijk = "results-row-" + i+"_"+j+"_"+k
+          var value = field[1](result)
+          $('#results-row-' + idij).append("<td class='statistic' id='statistic-'" + idijk + "'>" + value + "</td>")
+        })
+      })
+    }
+  })
+  $('#finance-display').show()
+  setUpTableSorting()
+}
+
+function displayInstrumentsLists(json) {
+  $('#pong-display').hide()
+  // Create the header row:
+  $("#finance-table thead").html(     // start with a clean row.
+    "<tr class='finance-head'>" + 
+    "<th class='top-left-rounded-corners'>Letter</th>" +
+    "<th class='top-right-rounded-corners'>Symbols</th>" +
+    "</tr>")
+
+  // Create the body rows:
+  $("#finance-table tbody").html('') // clear the body first.
+	// Hack: Handle case where there was only one object, so json is that object, not an array.
+	if (is_array(json) === false) {
+    json = [json]
+	} 
+  $.each(json, function(i, row) {
+    var symbols  = row.symbols
+    if (symbols.length === 0) {
+      $("#finance-table tbody").append(
+        "<tr class='results-row'><td class='symbol-letter'>" + row.letter + "</td><td class='no-symbols'>No instruments!</td></tr>")        
+    } else {
+      $("#finance-table tbody").append(
+			  "<tr class='results-row'><td class='symbol-letter'>" + row.letter + "</td><td class='symbols'>" + symbols.join(', ') + "</td></tr>")
+		}
+  })
+  $('#finance-display').show()
+  setUpTableSorting()
 }
 
 function onError(request, textStatus, errorThrown) {
@@ -169,18 +227,18 @@ function sendRequest(action) {
 }
 
 function serverControl(action) {
+  writeInfo("Sending request...")
   var action2 = action;
   sendRequest(action);
 }
 
 function setUpTableSorting() {
-  return // disabled until I can figure out a JS error that occurs.
   $('table.tablesorter').tablesorter({
-    sortList:[[0,0], [1,0], [2,0]],
-    headers: { 
+					//sortList: [[0,0], [1,0]],
+    // headers: { 
        // disable some columns,
        // 0: { sorter: false },
-    },
+    // },
     widgets:['zebra']
   });  
   
@@ -198,11 +256,11 @@ function setUpTableSorting() {
 }
 
 function setupDatePicker(){
-  Date.format = 'mm/dd/yyyy'
+  Date.format = 'yyyy-mm-dd'
   var today = (new Date()).asString()
   $('.date-pick').datePicker({
-    clickInput:  true,
-    startDate:   '01/01/1970',
+    // clickInput:  true,
+    startDate:   '1970-01-01',
     endDate:     today,
     defaultDate: today
   });
@@ -214,10 +272,8 @@ $(document).ready(function () {
     $('.banner').fadeIn('slow');
     $('.banner').fadeOut(2000);
   })
-  // Call the following each time the finance table is set up!
-  // setUpTableSorting()
   setupDatePicker()
   setupDefaultDates()
-  submitOnCarriageReturn($('.date-pick'), $('#master-toolbar'))
+  submitOnCarriageReturn($('.submit-on-CR'), $('#master-toolbar'))
 });
 

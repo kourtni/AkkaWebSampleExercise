@@ -19,15 +19,21 @@ import net.lag.logging.Level
 sealed trait InstrumentCalculationMessages
 
 case class CalculateStatistics(criteria: CriteriaMap) extends InstrumentCalculationMessages
+case class GetInstrumentList(range: scala.collection.immutable.NumericRange[Char]) extends InstrumentCalculationMessages
       
 /**
  * InstrumentAnalysisServer is a worker that calculates (or simply fetches...) statistics for financial instruments.
  * It reads data from and writes results to a DataStorageServer, which it supervises.
+ * It is parameterized by the type of the date time values used as timestamps.
+ * TODO: The relationship and management of these servers, DataStorageServers and DataStores is
+ * convoluted and messy. Refactor...
  */
-class InstrumentAnalysisServer(val service: String) extends Transactor 
-    with ActorSupervision with ActorUtil with PingHandler with Logging {
+class InstrumentAnalysisServer(val service: String, dataStorageServer: ActorRef) extends Transactor 
+    with ActorUtil with ActorFactory with PingHandler with Logging {
   
   val actorName = "InstrumentAnalysisServer("+service+")"
+  
+  manageNewActor(dataStorageServer)
   
   /**
    * The message handler calls the "pingHandler" first. If it doesn't match on the
@@ -38,10 +44,7 @@ class InstrumentAnalysisServer(val service: String) extends Transactor
 
   def defaultHandler: PartialFunction[Any, Unit] = {
     case CalculateStatistics(criteria) => self.reply(helper.calculateStatistics(criteria))
-  }
-  
-  lazy val dataStorageServer = getOrMakeActorFor(service+"_data_storage_server") {
-    name => new DataStorageServer(name)
+    case GetInstrumentList(range) => self.reply(helper.getInstrumentList(range))
   }
   
   override protected def subordinatesToPing: List[ActorRef] = List(dataStorageServer)
@@ -57,10 +60,8 @@ class InstrumentAnalysisServer(val service: String) extends Transactor
 class InstrumentAnalysisServerHelper(dataStorageServer: => ActorRef) {
   
   def calculateStatistics(criteria: CriteriaMap): JValue = criteria match {
-    case CriteriaMap(instruments, statistics, start, end) => 
-       fetchPrices(instruments, statistics, start, end)
-    case _ =>
-      Pair("error", "Invalid criteria: " + criteria)
+    case CriteriaMap(instruments, statistics, start, end) => fetchPrices(instruments, statistics, start, end)
+    case _ => Pair("error", "Invalid criteria: " + criteria)
   }
 
   /**
@@ -71,20 +72,33 @@ class InstrumentAnalysisServerHelper(dataStorageServer: => ActorRef) {
   protected def fetchPrices(
         instruments: List[Instrument], statistics: List[InstrumentStatistic], 
         start: DateTime, end: DateTime): JValue = {
-    val startMillis = start.getMillis
-    val endMillis   = end.getMillis
-    (dataStorageServer !! Get(("start" -> startMillis) ~ ("end" -> endMillis))) match {
+    (dataStorageServer !! Get(("start" -> start) ~ ("end" -> end))) match {
       case None => 
         Pair("warning", "Nothing returned for query (start, end) = (" + start + ", " + end + ")")
       case Some(result) => 
+<<<<<<< HEAD
         formatPriceResults(filter(instruments,result), instruments, statistics, startMillis, endMillis)
+=======
+        formatPriceResults(filter(result), instruments, statistics, start, end)
+>>>>>>> deanwampler-origin/exercise2
     }
   }
   
+  def getInstrumentList(range: scala.collection.immutable.NumericRange[Char]): JValue = {
+    (dataStorageServer !! Get(Pair("instrument_list", range.toList.head.toString))) match {
+      case None => 
+        Pair("warning", "Nothing returned for instrument list in range "+range)
+      case Some(result) => 
+					 log.info("IS: result = "+result)
+					 result
+    }
+  }
+
   /**
    * A "hook" method that could be used to filter by instrument (and maybe statistics) criteria. 
    * However, in general, it would be better to filter in the DB query itself!
    */
+<<<<<<< HEAD
   protected def filter(instruments: List[Instrument], json: JValue): JValue = {
 	val names = Instrument.toSymbolNames(instruments)
 	json match {
@@ -98,20 +112,23 @@ class InstrumentAnalysisServerHelper(dataStorageServer: => ActorRef) {
 	}
   }
 
+=======
+  protected def filter(json: JValue): JValue = json
+  
+>>>>>>> deanwampler-origin/exercise2
   // Public visibility, for testing purposes.
   def formatPriceResults(
-      json: JValue, instruments: List[Instrument], statistics: List[InstrumentStatistic], start: Long, end: Long): JValue = {
+      json: JValue, instruments: List[Instrument], statistics: List[InstrumentStatistic], start: DateTime, end: DateTime): JValue = {
     val results = json match {
       case JNothing => toJValue(Nil)  // Use an empty array as the result
       case x => x
     }
     val fullResults = toJValue(Map("criteria" -> toNiceFormat(instruments, statistics, start, end), "results" -> results))
-    log.info("b: "+fullResults)
     fullResults
   }
   
   /** Extract and format the data so it's more convenient when returned to the UI. */
-  protected def toNiceFormat(instruments: List[Instrument], statistics: List[InstrumentStatistic], start: Long, end: Long): Map[String, Any] = 
+  protected def toNiceFormat(instruments: List[Instrument], statistics: List[InstrumentStatistic], start: DateTime, end: DateTime): Map[String, Any] = 
     Map(
       "instruments" -> Instrument.toSymbolNames(instruments),
       "statistics"  -> statistics,

@@ -5,6 +5,9 @@ import se.scalablesolutions.akka.config.Config.config
 import se.scalablesolutions.akka.util.Logging
 import scala.collection.immutable.SortedSet
 import org.joda.time._
+import org.joda.time.format._
+import net.liftweb.json.JsonAST._
+import net.liftweb.json.JsonDSL._
 import com.osinka.mongodb._
 import com.mongodb.{BasicDBObject, DBCursor, Mongo, MongoException}
 
@@ -18,7 +21,7 @@ class MongoDBDataStore(
     val dataBaseName: String      = MongoDBDataStore.MONGODB_SERVER_DBNAME,
     val hostName: String          = MongoDBDataStore.MONGODB_SERVER_HOSTNAME,
     val port: Int                 = MongoDBDataStore.MONGODB_SERVER_PORT)
-      extends DataStore[JSONRecord] with Logging {
+      extends DataStore with Logging {
 
   lazy val name = collectionName
   
@@ -29,7 +32,8 @@ class MongoDBDataStore(
   // already exists. So, we catch it and call getCollection.
   lazy val collection = try {
     val coll = dataBase.createCollection(collectionName, Map.empty[String,Any])  // options
-    coll ensureIndex Map("timestamp" -> 1)
+    // We setup indices when we create the collections; otherwise, do this:
+    // coll ensureIndex Map(JSONRecord.timestampKey -> 1)
     coll asScala
   } catch {
     case ex: MongoException => 
@@ -38,9 +42,6 @@ class MongoDBDataStore(
   }
   
   def add(record: JSONRecord): Unit = collection << record
-  
-  // def map[T](f: JSONRecord => T) = 
-  //   collection map { dbo => f(JSONRecord(dbo.toMap)) } toIterable
   
   def getAll() = cursorToRecords(collection.find())
 
@@ -51,15 +52,34 @@ class MongoDBDataStore(
     case Some(dbo) => Some(JSONRecord(dbo.toMap))
   }
   
-  def range(from: Long, until: Long, maxNum: Int): Iterable[JSONRecord] = try {
+  def range(from: DateTime, to: DateTime, maxNum: Int): Iterable[JSONRecord] = try {
     val query = new BasicDBObject()
-    query.put("timestamp", new BasicDBObject("$gte", from).append("$lt", until))
-
-    val cursor = collection.find(query).sort(new BasicDBObject("timestamp", 1))
+    query.put(JSONRecord.timestampKey, 
+              new BasicDBObject("$gte", dateTimeToAnyValue(from)).append("$lte", dateTimeToAnyValue(to)))
+    val cursor = collection.find(query).sort(new BasicDBObject(JSONRecord.timestampKey, 1))
+    log.info("db name: query, cursor.count, maxNum: "+collection.getFullName+", "+query+", "+cursor.count+", "+maxNum)
     if (cursor.count > maxNum)
       cursorToRecords(cursor.skip(cursor.count - maxNum).limit(maxNum))
     else
       cursorToRecords(cursor)
+  } catch {
+    case th => 
+      log.error("MongoDB Exception: ", th)
+      throw th
+  }
+  
+  // Hack!
+  def getInstrumentList(prefix: String): Iterable[JSONRecord] = try {
+	  // TODO: We hard-code the name of the thing we want, the "stock_symbol". Should be abstracted...
+    val list = collection.distinct("stock_symbol")
+    val buff = new scala.collection.mutable.ArrayBuffer[String]()
+    var iter = list.iterator
+    while (iter.hasNext) {
+      buff += iter.next.toString
+    }
+    // Must put in a timestamp to make JSONRecord happy:
+    val format = DateTimeFormat.forPattern("yyyy-MM-dd")
+    List(JSONRecord(("date" -> format.print(new DateTime)) ~ ("letter" -> prefix) ~ ("symbols" -> buff.toList)))
   } catch {
     case th => 
       log.error("MongoDB Exception: ", th)
@@ -73,12 +93,20 @@ class MongoDBDataStore(
     }
     buff
   }
+  
+  /**
+   * Convert a DateTime to whatever type is actually used in the data records.
+   * This implementation converts the input DateTime to milliseconds. 
+   * Subclasses can transform the input DateTime as appropriate.
+   */
+  protected def dateTimeToAnyValue(dateTime: DateTime): Any = dateTime.getMillis
 }
 
 object MongoDBDataStore extends Logging {
-  val MONGODB_SERVER_HOSTNAME = config.getString("akka.storage.mongodb.hostname", "127.0.0.1")
-  val MONGODB_SERVER_DBNAME = config.getString("akka.storage.mongodb.dbname", "statistics")
-  val MONGODB_SERVER_PORT = config.getInt("akka.storage.mongodb.port", 27017)
+  val mongodbConfigPrefix = "akka.remote.server.server.client.storage.mongodb"
+  val MONGODB_SERVER_HOSTNAME = config.getString(mongodbConfigPrefix+".hostname", "127.0.0.1")
+  val MONGODB_SERVER_DBNAME = config.getString(mongodbConfigPrefix+".dbname", "statistics")
+  val MONGODB_SERVER_PORT = config.getInt(mongodbConfigPrefix+".port", 27017)
   
   def getDb(
       dbName: String   = MONGODB_SERVER_DBNAME,
