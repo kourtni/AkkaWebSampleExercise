@@ -5,10 +5,10 @@
 
 dir=$(dirname $0)
 mongo < "$dir/data-import-prep.js"    # Create the collections in mongo
-scala -classpath "lib/joda-time-1.6.jar" "$dir/data-import-transform.scala"  # Munge the YAML files into JSON files we'll import
+#scala -classpath "lib/joda-time-1.6.jar" "$dir/data-import-transform.scala"  # Munge the YAML files into JSON files we'll import
 
 # Import the munged data. Note that it is in files in the datatmp directory.
-for n in {A..Z}
+for n in {A..E}
 do
   prefix="$dir/../datatmp/stocks_yahoo_NYSE"
   file1="${prefix}_${n}_prices.json"
