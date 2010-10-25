@@ -59,23 +59,12 @@ class MongoDBDataStore(
       greaterThanEquals(dateTimeToAnyValue(from)).
       lessThanEquals(dateTimeToAnyValue(to))
     
-    log.info("========================================")
-    log.info("========================================")
-    otherCriteria foreach ((t2) =>{
-        var sb = new StringBuilder
-        sb.append(t2._1)
-        sb.append("-->")
-        sb.append(t2._2)
-        log.info(sb.toString)
-      }
-    )
-    log.info("========================================")
-    log.info("========================================")
     
     if(otherCriteria.contains("stock_symbol")){
       log.info("Inside STOCK_SYMBOL if block!")
       var myBasicDBList = new BasicDBList
-      myBasicDBList.addAll(otherCriteria.apply("stock_symbol").asInstanceOf[java.util.List[String]])
+      otherCriteria.foreach( arg => myBasicDBList.add(arg))
+      //myBasicDBList.addAll(otherCriteria.apply("stock_symbol").asInstanceOf[java.util.List[String]])
       qb.and("stock_symbol").in(myBasicDBList)
       log.info("Exiting STOCK_SYMBOL if block!")
     }
