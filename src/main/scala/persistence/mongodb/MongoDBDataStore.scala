@@ -9,7 +9,7 @@ import org.joda.time.format._
 import net.liftweb.json.JsonAST._
 import net.liftweb.json.JsonDSL._
 import com.osinka.mongodb._
-import com.mongodb.{BasicDBObject, DBCursor, Mongo, MongoException}
+import com.mongodb.{BasicDBObject, BasicDBList, DBCursor, Mongo, MongoException}
 // import com.novus.casbah.mongodb.Imports._
 
 /**
@@ -53,11 +53,32 @@ class MongoDBDataStore(
     case Some(dbo) => Some(JSONRecord(dbo.toMap))
   }
   
-  def range(from: DateTime, to: DateTime, maxNum: Int): Iterable[JSONRecord] = try {
+  def range(from: DateTime, to: DateTime, otherCriteria: Map[String, Any] = Map.empty, maxNum: Int): Iterable[JSONRecord] = try {
     val qb = new com.mongodb.QueryBuilder
     qb.and(JSONRecord.timestampKey).
       greaterThanEquals(dateTimeToAnyValue(from)).
       lessThanEquals(dateTimeToAnyValue(to))
+    
+    log.info("========================================")
+    log.info("========================================")
+    otherCriteria foreach ((t2) =>{
+        var sb = new StringBuilder
+        sb.append(t2._1)
+        sb.append("-->")
+        sb.append(t2._2)
+        log.info(sb.toString)
+      }
+    )
+    log.info("========================================")
+    log.info("========================================")
+    
+    if(otherCriteria.contains("stock_symbol")){
+      log.info("Inside STOCK_SYMBOL if block!")
+      var myBasicDBList = new BasicDBList
+      myBasicDBList.addAll(otherCriteria.apply("stock_symbol").asInstanceOf[java.util.List[String]])
+      qb.and("stock_symbol").in(myBasicDBList)
+      log.info("Exiting STOCK_SYMBOL if block!")
+    }
     val query = qb.get
     val cursor = collection.find(query).sort(new BasicDBObject(JSONRecord.timestampKey, 1))
     log.info("db name: query, cursor.count, maxNum: "+collection.getFullName+", "+query+", "+cursor.count+", "+maxNum)

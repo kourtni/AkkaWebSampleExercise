@@ -73,16 +73,15 @@ class InstrumentAnalysisServerHelper(dataStorageServer: => ActorRef) {
   protected def fetchPrices(
         instruments: List[Instrument], statistics: List[InstrumentStatistic], 
         start: DateTime, end: DateTime): JValue = {
-    (dataStorageServer !! Get(Map("start" -> start, "end" -> end))) match {
+    val symbols = Instrument.toSymbolNames(instruments)
+    (dataStorageServer !! Get(Map("start" -> start, "end" -> end,
+                                  "stock_symbol" -> symbols))) match {
       case None => 
         Pair("warning", "Nothing returned for query (start, end) = (" + start + ", " + end + ")")
       case Some(result) => 
-<<<<<<< HEAD
-        formatPriceResults(filter(instruments,result), instruments, statistics, startMillis, endMillis)
-=======
         formatPriceResults(filter(result), instruments, statistics, start, end)
->>>>>>> deanwampler-origin/exercise2
     }
+      
   }
   
   def getInstrumentList(
@@ -100,24 +99,8 @@ class InstrumentAnalysisServerHelper(dataStorageServer: => ActorRef) {
    * A "hook" method that could be used to filter by instrument (and maybe statistics) criteria. 
    * However, in general, it would be better to filter in the DB query itself!
    */
-<<<<<<< HEAD
-  protected def filter(instruments: List[Instrument], json: JValue): JValue = {
-	val names = Instrument.toSymbolNames(instruments)
-	json match {
-		case JArray(list) => list filter { element =>
-			(element \\ "symbol") match {
-				case JField("symbol", x) if (names.exists(x == JString(_))) => true
-				case _ => false
-			}
-		}
-		case _ => true
-	}
-  }
-
-=======
   protected def filter(json: JValue): JValue = json
   
->>>>>>> deanwampler-origin/exercise2
   // Public visibility, for testing purposes.
   def formatPriceResults(
       json: JValue, instruments: List[Instrument], statistics: List[InstrumentStatistic], start: DateTime, end: DateTime): JValue = {
