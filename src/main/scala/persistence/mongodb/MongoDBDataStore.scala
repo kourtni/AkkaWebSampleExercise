@@ -63,8 +63,7 @@ class MongoDBDataStore(
     if(otherCriteria.contains("stock_symbol")){
       log.info("Inside STOCK_SYMBOL if block!")
       var myBasicDBList = new BasicDBList
-      otherCriteria.foreach( arg => myBasicDBList.add(arg))
-      //myBasicDBList.addAll(otherCriteria.apply("stock_symbol").asInstanceOf[java.util.List[String]])
+      otherCriteria.keySet.foreach( arg => myBasicDBList.add(arg))
       qb.and("stock_symbol").in(myBasicDBList)
       log.info("Exiting STOCK_SYMBOL if block!")
     }
